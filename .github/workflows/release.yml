@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build and publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: curl, zip
+          coverage: none
+      - name: Validate release version
+        shell: bash
+        run: |
+          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo '::error::Release tags must have the format X.Y.Z without a v prefix.'
+            exit 1
+          fi
+          version="$(jq -r .version module.json)"
+          if [ "$version" != "$TAG" ]; then
+            echo '::error::The tag must match the version in module.json.'
+            exit 1
+          fi
+      - name: Verify installer
+        run: php tests/run.php
+      - name: Build and verify release assets
+        run: |
+          git archive --format=zip --prefix=GHInstaller/ --output=GHInstaller.zip HEAD
+          printf '%s\n' "$TAG" > version.txt
+          php tests/check-package.php GHInstaller.zip
+      - name: Publish complete release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" GHInstaller.zip version.txt --clobber
+          else
+            gh release create "$TAG" GHInstaller.zip version.txt --verify-tag --title "$TAG" --generate-notes
+          fi

@@ -6,10 +6,12 @@
     "author": "W&S Technik GmbH",
     "authorUrl": "https://github.com/wus-technik",
     "detailsUrl": "https://github.com/wus-technik/freescout_gh-installer",
-    "requiredAppVersion": "1.8.0",
+    "requiredAppVersion": "1.8.124",
     "requiredPhpExtensions": "curl,zip,json",
     "providers": ["Modules\\GHInstaller\\Providers\\GHInstallerServiceProvider"],
     "aliases": {},
     "files": [],
-    "requires": []
+    "requires": [],
+    "latestVersionUrl": "https://github.com/wus-technik/freescout_gh-installer/releases/latest/download/version.txt",
+    "latestVersionZipUrl": "https://github.com/wus-technik/freescout_gh-installer/releases/latest/download/GHInstaller.zip"
 }

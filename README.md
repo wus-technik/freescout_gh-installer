@@ -4,7 +4,7 @@ FreeScout-Module über eine GitHub-Repository-URL installieren und Module ohne e
 
 ## Erstinstallation des Installers
 
-1. Dieses Repository herunterladen oder klonen.
+1. `GHInstaller.zip` aus dem [neuesten Release](https://github.com/wus-technik/freescout_gh-installer/releases/latest) herunterladen und entpacken. Das ZIP enthält bereits den richtig benannten Ordner `GHInstaller/`. Alternativ dieses Repository klonen.
 2. Den Repository-Inhalt in `<freescout>/Modules/GHInstaller` ablegen. Direkt darin müssen `module.json`, `Providers`, `Http` und `Services` liegen. Der Ordner muss **GHInstaller** heißen, nicht `freescout_gh-installer-main`.
 3. PHP-Erweiterungen **curl**, **zip** und **json** aktivieren. Der PHP/Webserver-Benutzer benötigt Schreibrechte für FreeScouts `Modules` und `storage/app`. Ausgehendes HTTPS zu `api.github.com` und `codeload.github.com` muss erlaubt sein.
 4. In FreeScout **Verwalten → Module** öffnen und **GHInstaller** aktivieren. Falls nötig den Cache über die Systemwerkzeuge leeren.
@@ -12,7 +12,7 @@ FreeScout-Module über eine GitHub-Repository-URL installieren und Module ohne e
 
 Alternativ ein mit `git archive` erstelltes ZIP mit dem Ordner `GHInstaller/` nach `<freescout>/Modules` entpacken. Für den Installer werden weder Composer noch Git noch Shell-Zugriff auf dem FreeScout-Server benötigt.
 
-Zielplattform: FreeScout 1.8.x mit Laravel 5.5 / Laravel-Modules 2.x; PHP-Syntax ab 7.1. Die konkrete Zielinstallation muss vor dem produktiven Einsatz geprüft werden.
+Zielplattform: FreeScout ab **1.8.124** mit Laravel 5.5 / Laravel-Modules 2.x; PHP-Syntax ab 7.1. Die konkrete Zielinstallation muss vor dem produktiven Einsatz geprüft werden.
 
 ## Ein Modul installieren
 
@@ -41,7 +41,25 @@ Bei einem Prozessabbruch während des Austauschs kann die bisherige Version in `
 
 Der SHA-Vergleich erkennt einen **anderen Stand**, auch nach einem Force-Push, und behauptet keine zeitliche Reihenfolge. Ein festgelegter Commit bleibt fest; Tags bleiben üblicherweise ebenfalls unverändert. Zum Verfolgen neuer Entwicklungen einen Branch wählen. Ein Update ist auch möglich, wenn der Autor die Modulversionsnummer unverändert lässt.
 
-Hat ein Modul `latestVersionUrl` oder `latestVersionZipUrl` in seiner `module.json`, verweist der Installer auf die FreeScout-Modulverwaltung und bietet keinen eigenen Updateweg an. Bereits anderweitig installierte Module ohne Herkunftsnachweis werden nicht übernommen. Der Installer selbst wird anfangs manuell installiert und besitzt daher keinen Herkunftsnachweis; seine Aktualisierung erfolgt ebenfalls manuell.
+Hat ein Modul `latestVersionUrl` oder `latestVersionZipUrl` in seiner `module.json`, verweist der Installer auf die FreeScout-Modulverwaltung und bietet keinen eigenen Updateweg an. Bereits anderweitig installierte Module ohne Herkunftsnachweis werden nicht übernommen.
+
+## Self-Update des GHInstallers
+
+Der GHInstaller besitzt eine eigene Update-Anbindung nach demselben Prinzip wie [Sidebar-Webhook PR #22](https://github.com/fulldecent/freescout-sidebar-webhook/pull/22). Unter **Verwalten → Module** erkennt FreeScout neue GHInstaller-Releases; auch `php artisan freescout:module-update` kann die Versionsdatei auswerten.
+
+- `latestVersionUrl` liefert die reine Versionsnummer aus `releases/latest/download/version.txt`.
+- `latestVersionZipUrl` liefert `releases/latest/download/GHInstaller.zip` mit dem Wurzelordner **GHInstaller/**. Das Repository muss deshalb nicht wie der PHP-Modulordner heißen.
+- Der integrierte FreeScout-Updater übernimmt den Austausch des Installers. Dessen eigene Commit-basierte Fallback-Updates bleiben für Module ohne native Update-Anbindung zuständig.
+
+Die beiden Release-Dateien müssen ohne Anmeldung erreichbar sein. Ein privates GitHub-Repository liefert sie dem eingebauten FreeScout-Updater nicht; `GHINSTALLER_GITHUB_TOKEN` gilt für Installationen und Commit-Prüfungen dieses Moduls und wird nicht in FreeScouts nativen Updater injiziert.
+
+### Releases erstellen
+
+1. `version` in `module.json` erhöhen und committen.
+2. Einen identischen Tag ohne `v`-Präfix pushen, zum Beispiel `git tag 0.1.1` und `git push origin 0.1.1`.
+3. Der Release-Workflow prüft die Versionsübereinstimmung, führt die Installertests aus, baut und prüft `GHInstaller.zip`, erzeugt `version.txt` und veröffentlicht den Release mit beiden Dateien. GitHub erhält beim erstmaligen Veröffentlichen die Assets vor der Veröffentlichung, damit `releases/latest` auf einen vollständigen Release zeigt.
+
+Der Workflow kann für einen bestehenden Tag auch manuell gestartet werden. `.gitattributes` schließt CI- und Testdateien aus dem Installations-ZIP aus. Tags sind als unveränderliche Release-Stände zu behandeln.
 
 ## Private Repositories / API-Limit
 

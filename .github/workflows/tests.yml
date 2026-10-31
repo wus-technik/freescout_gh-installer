@@ -19,3 +19,7 @@ jobs:
         run: find . -name '*.php' ! -name '*.blade.php' -print0 | xargs -0 -n1 php -l
       - name: Installer integration and archive security
         run: php tests/run.php
+      - name: Verify installable package
+        run: |
+          git archive --format=zip --prefix=GHInstaller/ --output=GHInstaller.zip HEAD
+          php tests/check-package.php GHInstaller.zip
