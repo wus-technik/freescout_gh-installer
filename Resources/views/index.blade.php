@@ -1,10 +1,5 @@
-@extends('layouts.app')
-
-@section('title', 'GitHub-Installer')
-
-@section('content')
-    <div class="section-heading">FreeScout-Modul von GitHub installieren</div>
-    <div class="row-container">
+<div class="ghinstaller">
+    <div class="margin-top margin-bottom">
         @if (session('ghinstaller.error'))
             <div class="alert alert-danger" role="alert">{{ session('ghinstaller.error') }}</div>
         @endif
@@ -44,26 +39,32 @@
             </form>
         @else
             <p>Gib die URL eines GitHub-Repositories mit einem FreeScout-Modul ein. Das Modul wird zuerst heruntergeladen und geprüft.</p>
-            <form method="POST" action="{{ route('ghinstaller.preview') }}">
+            <form method="POST" action="{{ route('ghinstaller.preview') }}" class="form-horizontal margin-top">
                 {{ csrf_field() }}
                 <div class="form-group">
-                    <label for="repository">GitHub-Repository-URL</label>
+                    <label for="repository" class="col-sm-3 control-label">GitHub-Repository-URL</label>
+                    <div class="col-sm-9">
                     <input id="repository" name="repository" type="url" class="form-control" required maxlength="255" placeholder="https://github.com/organisation/freescout-modul" value="{{ old('repository') }}" aria-describedby="repository-help">
                     <p id="repository-help" class="help-block">Das Repository muss genau ein Modul mit module.json und passenden Provider-Dateien enthalten. GitHub.com wird unterstützt.</p>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label for="ref">Branch, Tag oder Commit (optional)</label>
+                    <label for="ref" class="col-sm-3 control-label">Branch, Tag oder Commit</label>
+                    <div class="col-sm-9">
                     <input id="ref" name="ref" type="text" class="form-control" maxlength="200" placeholder="Standard-Branch des Repositories" value="{{ old('ref') }}">
+                    <p class="help-block">Optional. Leer lassen, um dem Standard-Branch zu folgen.</p>
+                    </div>
                 </div>
-                <button type="submit" class="btn btn-primary">Repository prüfen</button>
+                <div class="form-group"><div class="col-sm-9 col-sm-offset-3"><button type="submit" class="btn btn-primary">Repository prüfen</button></div></div>
             </form>
         @endif
     </div>
     @if (count($managed))
-        <div class="section-heading">Über GitHub installierte Module</div>
-        <div class="row-container">
+        <h3>Über GitHub installierte Module</h3>
+        <div>
             <p>Die Prüfung vergleicht den installierten Commit mit dem aktuellen Stand der gespeicherten Referenz. Bei einem festen Tag oder Commit bleibt diese Referenz fest.</p>
             @foreach ($managed as $alias => $module)
+                <div class="ghinstaller-module">
                 <h3>{{ $module['manifest']['name'] }} <small>{{ $module['manifest']['version'] ?? '' }}</small></h3>
                 <p>{{ $module['source']['repository'] }} · {{ $module['source']['ref'] }}<br>Installierter Commit: <code>{{ $module['source']['commit'] }}</code></p>
                 @if (!empty($module['manifest']['latestVersionUrl']) || !empty($module['manifest']['latestVersionZipUrl']))
@@ -89,7 +90,23 @@
                         </form>
                     @endif
                 @endif
+                </div>
             @endforeach
         </div>
     @endif
-@endsection
+    <details @if (!$diagnostics['modules_writable'] || !$diagnostics['work_writable'] || in_array(false, $diagnostics['extensions'], true)) open @endif>
+        <summary>Serverprüfung und Schreibrechte</summary>
+        <table class="table table-condensed ghinstaller-checks">
+            <tbody>
+                <tr><th>PHP-Version</th><td>{{ $diagnostics['php'] }}</td></tr>
+                <tr><th>PHP-Prozessbenutzer</th><td>{{ $diagnostics['user'] ?? 'Nicht ermittelbar; PHP-FPM-Pool bzw. Apache-Konfiguration prüfen.' }}</td></tr>
+                @foreach ($diagnostics['extensions'] as $extension => $available)
+                    <tr><th>PHP {{ $extension }}</th><td class="{{ $available ? 'text-success' : 'text-danger' }}">{{ $available ? 'Verfügbar' : 'Fehlt' }}</td></tr>
+                @endforeach
+                <tr><th>Module</th><td><code>{{ $diagnostics['modules'] }}</code><br><span class="{{ $diagnostics['modules_writable'] ? 'text-success' : 'text-danger' }}">{{ $diagnostics['modules_writable'] ? 'Beschreibbar' : 'Nicht beschreibbar' }}</span></td></tr>
+                <tr><th>Arbeitsverzeichnis</th><td><code>{{ $diagnostics['work'] }}</code><br><span class="{{ $diagnostics['work_writable'] ? 'text-success' : 'text-danger' }}">{{ $diagnostics['work_writable'] ? 'Beschreibbar bzw. anlegbar' : 'Nicht beschreibbar / nicht anlegbar' }}</span></td></tr>
+            </tbody>
+        </table>
+        <p class="help-block">Der PHP-Prozessbenutzer benötigt Schreibrechte in beiden Verzeichnissen. Bei ihm als Eigentümer: Modulordner 755, Moduldateien 644 und das private Arbeitsverzeichnis 700. Details und Befehle stehen in der README.</p>
+    </details>
+</div>

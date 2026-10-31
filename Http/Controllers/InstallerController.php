@@ -18,6 +18,13 @@ class InstallerController extends Controller
 
     public function index(Request $request, Installer $installer)
     {
+        $request->session()->reflash();
+        return redirect()->route('settings', ['section' => 'ghinstaller']);
+    }
+
+    public function viewData(Request $request, Installer $installer)
+    {
+        abort_unless(auth()->check() && auth()->user()->isAdmin(), 403);
         $installer->cleanup();
         $pending = $request->session()->get('ghinstaller.pending');
         if ($pending && $pending['expires'] < time()) {
@@ -26,7 +33,8 @@ class InstallerController extends Controller
             $pending = null;
         }
         $managed = $installer->managed();
-        return response()->view('ghinstaller::index', compact('pending', 'managed'))->header('Cache-Control', 'no-store, private');
+        $diagnostics = $installer->diagnostics();
+        return compact('pending', 'managed', 'diagnostics');
     }
 
     public function preview(Request $request, Installer $installer)
@@ -38,9 +46,9 @@ class InstallerController extends Controller
             $request->session()->put('ghinstaller.pending', $pending);
             $request->session()->put('ghinstaller.confirmation', bin2hex(random_bytes(24)));
         } catch (\Throwable $error) {
-            return redirect()->route('ghinstaller.index')->withInput($request->only('repository', 'ref'))->with('ghinstaller.error', $this->errorMessage($error));
+            return redirect()->route('settings', ['section' => 'ghinstaller'])->withInput($request->only('repository', 'ref'))->with('ghinstaller.error', $this->errorMessage($error));
         }
-        return redirect()->route('ghinstaller.index');
+        return redirect()->route('settings', ['section' => 'ghinstaller']);
     }
 
     public function install(Request $request, Installer $installer)
@@ -49,29 +57,29 @@ class InstallerController extends Controller
         $confirmation = $request->session()->get('ghinstaller.confirmation');
         if (!$pending || !is_string($confirmation) || !is_string($request->input('confirmation'))
             || !hash_equals($confirmation, $request->input('confirmation')) || $request->input('trusted') !== '1') {
-            return redirect()->route('ghinstaller.index')->with('ghinstaller.error', 'Bitte zuerst das Repository prüfen und dem Modulcode ausdrücklich vertrauen.');
+            return redirect()->route('settings', ['section' => 'ghinstaller'])->with('ghinstaller.error', 'Bitte zuerst das Repository prüfen und dem Modulcode ausdrücklich vertrauen.');
         }
         // Consume once; repeat requests cannot install the same preview twice.
         $request->session()->forget(['ghinstaller.pending', 'ghinstaller.confirmation']);
         try {
             $manifest = $installer->install($pending);
         } catch (\Throwable $error) {
-            return redirect()->route('ghinstaller.index')->with('ghinstaller.error', $this->errorMessage($error));
+            return redirect()->route('settings', ['section' => 'ghinstaller'])->with('ghinstaller.error', $this->errorMessage($error));
         }
         // Publishing succeeded. Cache failure must not report a failed installation.
         try {
             \Module::clearCache();
             \Artisan::call('freescout:clear-cache');
         } catch (\Throwable $error) {
-            return redirect()->route('ghinstaller.index')->with('ghinstaller.success', $manifest['name'].' wurde installiert. Bitte den FreeScout-Cache über die Systemwerkzeuge leeren und das Modul unter Verwalten → Module aktivieren.');
+            return redirect()->route('settings', ['section' => 'ghinstaller'])->with('ghinstaller.success', $manifest['name'].' wurde installiert. Bitte den FreeScout-Cache über die Systemwerkzeuge leeren und das Modul unter Verwalten → Module aktivieren.');
         }
-        return redirect()->route('ghinstaller.index')->with('ghinstaller.success', $manifest['name'].' wurde installiert. Jetzt unter Verwalten → Module aktivieren.');
+        return redirect()->route('settings', ['section' => 'ghinstaller'])->with('ghinstaller.success', $manifest['name'].' wurde installiert. Jetzt unter Verwalten → Module aktivieren.');
     }
 
     public function cancel(Request $request, Installer $installer)
     {
         $this->clearPending($request, $installer);
-        return redirect()->route('ghinstaller.index');
+        return redirect()->route('settings', ['section' => 'ghinstaller']);
     }
 
     public function check(Request $request, Installer $installer)
@@ -79,9 +87,9 @@ class InstallerController extends Controller
         $request->validate(['alias' => 'required|string|max:80']);
         try {
             $result = $installer->check($request->input('alias'));
-            return redirect()->route('ghinstaller.index')->with('ghinstaller.checks', [$request->input('alias') => $result]);
+            return redirect()->route('settings', ['section' => 'ghinstaller'])->with('ghinstaller.checks', [$request->input('alias') => $result]);
         } catch (\Throwable $error) {
-            return redirect()->route('ghinstaller.index')->with('ghinstaller.error', $this->errorMessage($error));
+            return redirect()->route('settings', ['section' => 'ghinstaller'])->with('ghinstaller.error', $this->errorMessage($error));
         }
     }
 
@@ -94,17 +102,21 @@ class InstallerController extends Controller
             $request->session()->put('ghinstaller.pending', $pending);
             $request->session()->put('ghinstaller.confirmation', bin2hex(random_bytes(24)));
         } catch (\Throwable $error) {
-            return redirect()->route('ghinstaller.index')->with('ghinstaller.error', $this->errorMessage($error));
+            return redirect()->route('settings', ['section' => 'ghinstaller'])->with('ghinstaller.error', $this->errorMessage($error));
         }
-        return redirect()->route('ghinstaller.index');
+        return redirect()->route('settings', ['section' => 'ghinstaller']);
     }
 
     private function errorMessage(\Throwable $error)
     {
         if ($error instanceof \RuntimeException) { return $error->getMessage(); }
         // Never return filesystem paths, transport diagnostics or credentials to the browser.
-        \Log::warning('GHInstaller operation failed', ['type' => get_class($error)]);
-        return 'Der Vorgang ist fehlgeschlagen. Bitte Schreibrechte und Serverkonfiguration prüfen.';
+        $message = $error->getMessage();
+        $token = (string) config('ghinstaller.token', '');
+        if ($token !== '') { $message = str_replace($token, '[redacted]', $message); }
+        $message = preg_replace('/(?:github_pat_|gh[pousr]_)[A-Za-z0-9_]+/', '[redacted]', $message);
+        \Log::warning('GHInstaller operation failed', ['type' => get_class($error), 'message' => $message, 'file' => $error->getFile(), 'line' => $error->getLine()]);
+        return 'Der Vorgang ist fehlgeschlagen. Details stehen im FreeScout-Anwendungslog unter "GHInstaller operation failed". Die Serverprüfung unten zeigt fehlende Erweiterungen und Schreibrechte.';
     }
 
     private function clearPending(Request $request, Installer $installer)

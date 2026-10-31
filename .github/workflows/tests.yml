@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        php: ['7.1', '7.4', '8.2', '8.4']
+        php: ['7.1', '7.4', '8.2', '8.4', '8.5']
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -18,7 +18,11 @@ jobs:
       - name: PHP syntax
         run: find . -name '*.php' ! -name '*.blade.php' -print0 | xargs -0 -n1 php -l
       - name: Installer integration and archive security
-        run: php tests/run.php
+        run: php -d error_reporting=-1 tests/run.php
+      - name: Settings integration and access control
+        run: php -d error_reporting=-1 tests/settings.php
+      - name: Real GitHub download with strict error handling
+        run: php -d error_reporting=-1 tests/github-smoke.php https://github.com/wus-technik/freescout_gh-installer 0.1.0
       - name: Verify installable package
         run: |
           git archive --format=zip --prefix=GHInstaller/ --output=GHInstaller.zip HEAD

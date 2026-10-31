@@ -13,6 +13,11 @@ if (!extension_loaded('zip')) {
     fwrite(STDERR, "PHP ZIP extension required.\n");
     exit(1);
 }
+// Match Laravel's conversion of PHP warnings/deprecations into exceptions.
+set_error_handler(function ($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) { return false; }
+    throw new ErrorException($message, 0, $severity, $file, $line);
+});
 $tests = 0;
 function check($condition, $message) {
     global $tests;
@@ -78,7 +83,7 @@ try {
 
     // libzip converts control characters to CP437 glyphs on Windows when creating a ZIP.
     $pathValidator = new ReflectionMethod(Archive::class, 'validatePath');
-    $pathValidator->setAccessible(true);
+    if (PHP_VERSION_ID < 80100) { $pathValidator->setAccessible(true); }
     rejects(function () use ($pathValidator) { $pathValidator->invoke(new Archive(), "repo/evil\0.php"); }, 'reject NUL path');
     rejects(function () use ($pathValidator) { $pathValidator->invoke(new Archive(), "repo/evil\x01.php"); }, 'reject control character path');
     foreach (['../escape', '/absolute', 'repo/../../escape', 'repo\\escape', 'repo/a:b', 'repo/./file', 'repo//file', 'repo/CON.txt', 'repo/file.'] as $i => $path) {
@@ -121,7 +126,7 @@ try {
         check(!is_dir($root.'/Modules/ExampleModule'), 'preview does not publish module');
         $installer->discard($pending['id']);
     }
-    foreach ([['name' => '../Escape'], ['alias' => '../escape'], ['version' => []], ['providers' => ['Modules\\Wrong\\Providers\\ExampleModuleServiceProvider']], ['providers' => []], ['name' => 'Display Name']] as $overrides) {
+    foreach ([['name' => '../Escape'], ['alias' => '../escape'], ['version' => []], ['providers' => ['Outside\\Wrong\\Providers\\ExampleModuleServiceProvider']], ['providers' => []], ['name' => []]] as $overrides) {
         archiveFixture($client->archive, moduleFixture('repo/', $overrides));
         rejects(function () use ($installer) { $installer->prepare('https://github.com/test/module', ''); }, 'reject invalid manifest');
     }
@@ -201,7 +206,21 @@ try {
 
     // The project itself must be a discoverable FreeScout module when installed from GitHub.
     $self = $installer->inspect(dirname(__DIR__));
-    check($self['manifest']['name'] === 'GHInstaller', 'self module manifest matches its provider');
+    check($self['manifest']['name'] === 'Github.com Installer', 'self module display name');
+    check($self['folder'] === 'GHInstaller', 'self module keeps stable installation folder');
+    archiveFixture($client->archive, moduleFixture('repo/', ['name' => 'Example Module']));
+    removeFixture($root.'/Modules/ExampleModule');
+    $displayPending = $installer->prepare('https://github.com/test/module', '');
+    $installer->install($displayPending);
+    check(is_file($root.'/Modules/ExampleModule/module.json'), 'display name independent of namespace folder');
+    check(isset($installer->managed()['examplemodule']), 'display name module remains tracked');
+    $client->sha = str_repeat('f', 40);
+    $displayUpdate = $installer->prepareUpdate('examplemodule');
+    $installer->install($displayUpdate);
+    check($installer->managed()['examplemodule']['source']['commit'] === str_repeat('f', 40), 'display name module can update');
+    check($installer->diagnostics()['modules_writable'], 'module directory diagnostics');
+    $badInstaller = new Installer($root.'/work', $root.'/MissingModules', $client);
+    rejects(function () use ($badInstaller) { $badInstaller->prepare('https://github.com/test/module', ''); }, 'missing module directory reported before download');
     echo 'OK: '.$tests." checks passed.\n";
 } finally {
     removeFixture($root);

@@ -48,7 +48,9 @@ jobs:
             exit 1
           fi
       - name: Verify installer
-        run: php tests/run.php
+        run: |
+          php -d error_reporting=-1 tests/run.php
+          php -d error_reporting=-1 tests/settings.php
       - name: Build and verify release assets
         run: |
           git archive --format=zip --prefix=GHInstaller/ --output=GHInstaller.zip HEAD

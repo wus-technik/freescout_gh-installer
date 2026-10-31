@@ -23,9 +23,10 @@ class Installer
         $repository = Repository::parse($url);
         $ref = Repository::ref($ref);
         $this->cleanup();
+        $this->assertWritableDirectories();
         $id = bin2hex(random_bytes(24));
         $job = $this->job($id);
-        if (!mkdir($job, 0700, true)) {
+        if (!@mkdir($job, 0700, true)) {
             throw new \RuntimeException('Das Arbeitsverzeichnis ist nicht beschreibbar.');
         }
         try {
@@ -101,7 +102,7 @@ class Installer
             if (file_put_contents($stage.'/.ghinstaller-source.json', json_encode($receipt, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n") === false) {
                 throw new \RuntimeException('Der Installationsnachweis konnte nicht geschrieben werden.');
             }
-            $destination = $this->modules.'/'.$module['manifest']['name'];
+            $destination = $this->modules.'/'.$module['folder'];
             if ($previous) {
                 if (!rename($destination, $backup)) {
                     throw new \RuntimeException('Das bisherige Modul konnte nicht gesichert werden.');
@@ -139,7 +140,7 @@ class Installer
     public function managed()
     {
         $result = [];
-        if (!is_dir($this->modules)) { return $result; }
+        if (!is_dir($this->modules) || !is_readable($this->modules)) { return $result; }
         foreach (new \DirectoryIterator($this->modules) as $directory) {
             if ($directory->isDot() || !$directory->isDir() || $directory->isLink() || $directory->getFilename()[0] === '.') { continue; }
             $manifestPath = $directory->getPathname().'/module.json';
@@ -148,9 +149,11 @@ class Installer
             $manifest = json_decode(file_get_contents($manifestPath), true);
             $source = json_decode(file_get_contents($receiptPath), true);
             if (!is_array($manifest) || !is_array($source) || !isset($manifest['name'], $manifest['alias'], $source['repository'], $source['ref'], $source['commit'])
-                || $manifest['name'] !== $directory->getFilename() || !is_string($manifest['alias'])
+                || !is_string($manifest['alias'])
                 || !is_string($source['repository']) || !is_string($source['ref']) || !is_string($source['commit'])
                 || !preg_match('/\A[0-9a-f]{40}\z/', $source['commit'])) { continue; }
+            try { $folder = $this->moduleFolder($manifest); } catch (\RuntimeException $error) { continue; }
+            if ($folder !== $directory->getFilename()) { continue; }
             $result[$manifest['alias']] = ['manifest' => $manifest, 'source' => $source];
         }
         return $result;
@@ -185,7 +188,7 @@ class Installer
     private function updateTarget($alias, array $manifest, $repository)
     {
         $existing = $this->managedTarget($alias);
-        if ($manifest['alias'] !== $alias || $manifest['name'] !== $existing['manifest']['name'] || $repository !== $existing['source']['repository']) {
+        if ($manifest['alias'] !== $alias || $this->moduleFolder($manifest) !== $this->moduleFolder($existing['manifest']) || $repository !== $existing['source']['repository']) {
             throw new \RuntimeException('Das Update passt nicht zum installierten Modul oder Repository.');
         }
         // If the new version introduces native updates, use that mechanism after this update.
@@ -209,35 +212,77 @@ class Installer
         }
         $manifest = json_decode(file_get_contents($candidates[0]), true);
         if (!is_array($manifest) || !isset($manifest['name'], $manifest['alias'], $manifest['version'])
-            || !is_string($manifest['name']) || !preg_match('/\A[A-Z][A-Za-z0-9]{0,79}\z/', $manifest['name'])
+            || !is_string($manifest['name']) || !preg_match('/\A[A-Za-z0-9][A-Za-z0-9 ._-]{0,119}\z/', $manifest['name'])
             || !is_string($manifest['alias']) || !preg_match('/\A[a-z][a-z0-9_-]{0,79}\z/', $manifest['alias'])
             || !is_string($manifest['version']) || !preg_match('/\A[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+][A-Za-z0-9.-]+)?\z/', $manifest['version'])) {
-            throw new \RuntimeException('Ungültige module.json: name muss dem PHP-Modulnamen entsprechen; alias und version sind erforderlich.');
+            throw new \RuntimeException('Ungültige module.json: Modulname, alias und version sind erforderlich.');
         }
         if (empty($manifest['providers']) || !is_array($manifest['providers'])) {
             throw new \RuntimeException('Das Modul enthält keinen Service Provider.');
         }
+        $folder = $this->moduleFolder($manifest);
         foreach ($manifest['providers'] as $provider) {
-            $prefix = 'Modules\\'.$manifest['name'].'\\';
+            $prefix = 'Modules\\'.$folder.'\\';
             if (!is_string($provider) || strpos($provider, $prefix) !== 0
                 || !preg_match('/\A[A-Za-z0-9_\\\\]+\z/', $provider)
                 || !is_file(dirname($candidates[0]).'/'.str_replace('\\', '/', substr($provider, strlen($prefix))).'.php')) {
                 throw new \RuntimeException('Modulname, Provider-Namespace und Provider-Datei passen nicht zusammen.');
             }
         }
-        return ['path' => dirname($candidates[0]), 'manifest' => $manifest];
+        return ['path' => dirname($candidates[0]), 'manifest' => $manifest, 'folder' => $folder];
+    }
+
+    private function moduleFolder(array $manifest)
+    {
+        $provider = $manifest['providers'][0] ?? null;
+        if (!is_string($provider) || !preg_match('/\AModules\\\\([A-Z][A-Za-z0-9]{0,79})\\\\/', $provider, $match)) {
+            throw new \RuntimeException('Der Provider muss im Namespace Modules\\Modulname liegen.');
+        }
+        return $match[1];
+    }
+
+    public function diagnostics()
+    {
+        $parent = $this->work;
+        while (!file_exists($parent) && dirname($parent) !== $parent) { $parent = dirname($parent); }
+        $user = null;
+        if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) {
+            $account = posix_getpwuid(posix_geteuid());
+            $user = $account['name'] ?? null;
+        }
+        return [
+            'php' => PHP_VERSION,
+            'user' => $user,
+            'modules' => $this->modules,
+            'modules_writable' => is_dir($this->modules) && is_writable($this->modules),
+            'work' => $this->work,
+            'work_writable' => is_dir($parent) && is_writable($parent),
+            'extensions' => ['curl' => extension_loaded('curl'), 'zip' => extension_loaded('zip'), 'json' => extension_loaded('json')],
+        ];
+    }
+
+    private function assertWritableDirectories()
+    {
+        $status = $this->diagnostics();
+        if (!$status['modules_writable']) {
+            throw new \RuntimeException('Das Modules-Verzeichnis ist für den PHP-Prozess nicht beschreibbar. Eigentümer und Schreibrechte prüfen.');
+        }
+        if (!$status['work_writable'] || (!is_dir($this->work) && !@mkdir($this->work, 0700, true))) {
+            throw new \RuntimeException('storage/app/ghinstaller ist für den PHP-Prozess nicht beschreibbar oder kann nicht angelegt werden. Eigentümer und Schreibrechte von storage/app prüfen.');
+        }
     }
 
     private function assertAvailable(array $manifest)
     {
-        if (!is_dir($this->modules) || !is_writable($this->modules) || is_link($this->modules.'/'.$manifest['name'])) {
+        $folder = $this->moduleFolder($manifest);
+        if (!is_dir($this->modules) || !is_writable($this->modules) || is_link($this->modules.'/'.$folder)) {
             throw new \RuntimeException('Das Modules-Verzeichnis ist nicht beschreibbar oder das Ziel ist ein Link.');
         }
         foreach (new \DirectoryIterator($this->modules) as $directory) {
             if ($directory->isDot() || strpos($directory->getFilename(), '.ghinstaller-') === 0) {
                 continue;
             }
-            if (strcasecmp($directory->getFilename(), $manifest['name']) === 0) {
+            if (strcasecmp($directory->getFilename(), $folder) === 0) {
                 throw new \RuntimeException('Ein Modul mit diesem Namen ist bereits vorhanden. Bestehende Module werden nicht überschrieben.');
             }
             $existing = $directory->getPathname().'/module.json';
@@ -286,7 +331,7 @@ class Installer
 
     public function cleanup()
     {
-        if (!is_dir($this->work)) { return; }
+        if (!is_dir($this->work) || !is_readable($this->work)) { return; }
         foreach (new \DirectoryIterator($this->work) as $file) {
             if (preg_match('/\A[0-9a-f]{48}\z/', $file->getFilename()) && $file->getMTime() < time() - self::TTL - 300) {
                 $this->discard($file->getFilename());

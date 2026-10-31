@@ -1,6 +1,6 @@
-# FreeScout GitHub Installer
+# Github.com Installer für FreeScout
 
-FreeScout-Module über eine GitHub-Repository-URL installieren und Module ohne eigene Update-Anbindung anhand ihres Commit-SHA aktualisieren. Bedienung ausschließlich für FreeScout-Administratoren unter **Verwalten → GitHub-Installer**.
+FreeScout-Module über eine GitHub-Repository-URL installieren und Module ohne eigene Update-Anbindung anhand ihres Commit-SHA aktualisieren. Bedienung ausschließlich für FreeScout-Administratoren unter **Verwalten → Einstellungen → Github.com Installer** in der linken Navigation. Der technische Ordnername und der Alias bleiben `GHInstaller` und `ghinstaller`.
 
 ## Erstinstallation des Installers
 
@@ -8,7 +8,7 @@ FreeScout-Module über eine GitHub-Repository-URL installieren und Module ohne e
 2. Den Repository-Inhalt in `<freescout>/Modules/GHInstaller` ablegen. Direkt darin müssen `module.json`, `Providers`, `Http` und `Services` liegen. Der Ordner muss **GHInstaller** heißen, nicht `freescout_gh-installer-main`.
 3. PHP-Erweiterungen **curl**, **zip** und **json** aktivieren. Der PHP/Webserver-Benutzer benötigt Schreibrechte für FreeScouts `Modules` und `storage/app`. Ausgehendes HTTPS zu `api.github.com` und `codeload.github.com` muss erlaubt sein.
 4. In FreeScout **Verwalten → Module** öffnen und **GHInstaller** aktivieren. Falls nötig den Cache über die Systemwerkzeuge leeren.
-5. **Verwalten → GitHub-Installer** öffnen.
+5. **Verwalten → Einstellungen → Github.com Installer** öffnen.
 
 Alternativ ein mit `git archive` erstelltes ZIP mit dem Ordner `GHInstaller/` nach `<freescout>/Modules` entpacken. Für den Installer werden weder Composer noch Git noch Shell-Zugriff auf dem FreeScout-Server benötigt.
 
@@ -22,7 +22,7 @@ Zielplattform: FreeScout ab **1.8.124** mit Laravel 5.5 / Laravel-Modules 2.x; P
 4. Den Quellcode prüfen und das Vertrauen ausdrücklich bestätigen, dann **Modul installieren** wählen.
 5. Unter **Verwalten → Module** das neue Modul aktivieren. FreeScout prüft dabei die Modulvoraussetzungen und führt die vorgesehenen Migrationen aus.
 
-Unterstützt wird genau ein FreeScout-Modul mit `module.json` im Repository, entweder im Repository-Stamm oder in einem Unterordner, beispielsweise `Modules/ExampleModule/`. `name` muss dem PHP-Modulnamen und Provider-Namespace entsprechen, beispielsweise `ExampleModule`, Alias `examplemodule`, Provider `Modules\ExampleModule\Providers\ExampleModuleServiceProvider`. Mehrere `module.json`-Dateien sind mehrdeutig und werden abgewiesen. Es werden keine Composer-Abhängigkeiten installiert und keine Build- oder Installationsskripte ausgeführt. Das Repository muss das einsatzfähige Modul enthalten; Git-LFS-Objekte und Submodule werden nicht zusätzlich geladen.
+Unterstützt wird genau ein FreeScout-Modul mit `module.json` im Repository, entweder im Repository-Stamm oder in einem Unterordner, beispielsweise `Modules/ExampleModule/`. Der Anzeigename `name` kann Leerzeichen enthalten, beispielsweise `Example Module`. Der technische Installationsordner wird aus dem Provider-Namespace bestimmt: `Modules\ExampleModule\Providers\ExampleModuleServiceProvider` ergibt `ExampleModule/`. Mehrere `module.json`-Dateien sind mehrdeutig und werden abgewiesen. Es werden keine Composer-Abhängigkeiten installiert und keine Build- oder Installationsskripte ausgeführt. Das Repository muss das einsatzfähige Modul enthalten; Git-LFS-Objekte und Submodule werden nicht zusätzlich geladen.
 
 Unterstützt wird GitHub.com. GitHub Enterprise, beliebige Download-URLs und GitHub-Unterseiten wie `/tree/main` werden nicht akzeptiert; die Referenz wird separat eingegeben.
 
@@ -71,6 +71,27 @@ GHINSTALLER_GITHUB_TOKEN=github_pat_...
 
 Einen Fine-grained Token mit Zugriff nur auf die benötigten Repositories und **Contents: Read-only** verwenden. Bei Organisations-Repositories gegebenenfalls die Organisationsfreigabe beachten. Der Token wird ausschließlich serverseitig an die beiden erlaubten GitHub-Hosts gesendet und nicht in Herkunftsnachweisen gespeichert. Tokens gehören weder in URLs noch in Git. Nach Änderungen gegebenenfalls den FreeScout-Konfigurationscache erneuern.
 
+## Serverrechte und Fehlerdiagnose
+
+Unter **Einstellungen → Github.com Installer → Serverprüfung und Schreibrechte** werden PHP-Version, PHP-Prozessbenutzer (sofern ermittelbar), Erweiterungen und die konfigurierten Verzeichnisse angezeigt. Entscheidend ist der Benutzer des **PHP-FPM-Pools bzw. Apache-Prozesses**, nicht automatisch der SSH-Benutzer oder der Nginx-Benutzer. Bei Docker die Rechte auf den Benutzer bzw. die numerische UID im Container abstimmen.
+
+Beispiel für eine Installation unter `/var/www/freescout` mit PHP-Benutzer `www-data`. Pfad und Benutzer vor Ausführung anpassen:
+
+```sh
+cd /var/www/freescout
+sudo mkdir -p storage/app/ghinstaller
+sudo chown -R www-data:www-data Modules storage/app/ghinstaller
+sudo find Modules -type d -exec chmod 755 {} \;
+sudo find Modules -type f -exec chmod 644 {} \;
+sudo chmod 700 storage/app/ghinstaller
+```
+
+Damit kann PHP Module installieren und aktualisieren; das Arbeitsverzeichnis bleibt privat. Andere FreeScout-Verzeichnisse müssen dafür nicht den Eigentümer wechseln. Kein `chmod 777` verwenden. Wenn ein Deploymentbenutzer Eigentümer bleiben soll, stattdessen gezielte Gruppenrechte oder ACLs für den PHP-Benutzer einrichten; auch beim Update müssen bestehende Moduldateien für ihn ersetzbar sein.
+
+Die Prüfung **Beschreibbar bzw. anlegbar** prüft die vorhandenen Verzeichnisrechte; zusätzliche Beschränkungen durch SELinux, AppArmor, `open_basedir`, volle Datenträger oder schreibgeschützte Mounts können Dateizugriffe trotzdem verhindern.
+
+Unerwartete Fehler erscheinen im FreeScout-Anwendungslog mit `GHInstaller operation failed`, Exception-Typ, bereinigter Fehlermeldung und Codeposition. Der konfigurierte GitHub-Token wird aus der Meldung entfernt. Die ursprüngliche allgemeine Fehlermeldung allein war kein Nachweis eines Rechteproblems. Version 0.1.1 behebt außerdem einen reproduzierten Fehler mit `curl_close()` unter PHP 8.5 und strenger Fehlerbehandlung.
+
 ## Schutzmaßnahmen und Grenzen
 
 - Alle Seiten und Aktionen erfordern eine angemeldete Administrator-Sitzung; Änderungen erfolgen per POST mit FreeScouts CSRF-Schutz und begrenzter Anfragerate.
@@ -95,7 +116,7 @@ php -d extension=zip tests/run.php
 Get-ChildItem -Recurse -Filter *.php | Where-Object Name -NotLike '*.blade.php' | ForEach-Object { php -l $_.FullName }
 ```
 
-Die eigenständigen Tests verwenden echte ZIP-Dateien und temporäre Modulverzeichnisse mit simuliertem GitHub-Client. Sie prüfen unter anderem Archivangriffe, Modul-Erkennung, Kollisionen, Installation, SHA-Nachweis, Commit-Prüfung, Updates, Vorrang nativer Updater und veraltete Vorschauen. GitHub Actions führt diese Tests mit PHP 7.1, 7.4, 8.2 und 8.4 aus.
+Die eigenständigen Tests verwenden echte ZIP-Dateien und temporäre Modulverzeichnisse mit simuliertem GitHub-Client. Sie prüfen unter anderem Archivangriffe, Modul-Erkennung, Kollisionen, Installation, SHA-Nachweis, Commit-Prüfung, Updates, Vorrang nativer Updater und veraltete Vorschauen. GitHub Actions führt diese Tests mit PHP 7.1, 7.4, 8.2, 8.4 und 8.5 mit strenger Fehlerbehandlung sowie einen echten GitHub-Download aus.
 
 Vor Produktiveinsatz in einer FreeScout-Testinstallation prüfen: Adminzugriff und Ablehnung normaler Benutzer, CSRF, Vorschau/Abbruch, Erstinstallation/Aktivierung und Update/erneute Aktivierung inklusive Migrationen. Ein privates Repository zusätzlich mit dem vorgesehenen Organisationstoken prüfen.
 

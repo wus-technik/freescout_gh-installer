@@ -1,0 +1,6 @@
+.ghinstaller code { overflow-wrap: anywhere; word-break: break-all; }
+.ghinstaller .ghinstaller-module { padding: 16px 0; border-top: 1px solid #e3e8ed; }
+.ghinstaller .ghinstaller-module h3 { margin-top: 0; }
+.ghinstaller .ghinstaller-checks th { width: 30%; }
+.ghinstaller details { margin-top: 24px; }
+.ghinstaller summary { cursor: pointer; margin-bottom: 12px; }

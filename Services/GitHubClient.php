@@ -72,7 +72,7 @@ class GitHubClient
         if (!in_array($host, ['api.github.com', 'codeload.github.com'], true)) {
             throw new \RuntimeException('Nicht erlaubtes Download-Ziel.');
         }
-        $headers = ['Accept: application/vnd.github+json', 'User-Agent: FreeScout-GHInstaller/0.1.0'];
+        $headers = ['Accept: application/vnd.github+json', 'User-Agent: FreeScout-GHInstaller'];
         if ($this->token !== '') {
             $headers[] = 'Authorization: Bearer '.$this->token;
         }
@@ -93,7 +93,8 @@ class GitHubClient
         ]);
         $ok = curl_exec($curl);
         $status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-        curl_close($curl);
+        // Releases both the PHP 7 resource and PHP 8 object without deprecated curl_close().
+        unset($curl);
         if ($received > $limit) {
             throw new \RuntimeException('Die GitHub-Antwort überschreitet das Größenlimit (Archiv: 25 MiB).');
         }

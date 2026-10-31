@@ -9,6 +9,11 @@ foreach (['Repository', 'GitHubClient', 'Archive', 'Installer'] as $class) {
 use Modules\GHInstaller\Services\GitHubClient;
 use Modules\GHInstaller\Services\Installer;
 
+set_error_handler(function ($severity, $message, $file, $line) {
+    if (!(error_reporting() & $severity)) { return false; }
+    throw new ErrorException($message, 0, $severity, $file, $line);
+});
+
 if (empty($argv[1])) {
     fwrite(STDERR, "Usage: php tests/github-smoke.php https://github.com/owner/repo [ref]\n");
     exit(1);
