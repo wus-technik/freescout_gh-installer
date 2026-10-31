@@ -1,0 +1,21 @@
+name: Tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['7.1', '7.4', '8.2', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, zip
+          coverage: none
+      - name: PHP syntax
+        run: find . -name '*.php' ! -name '*.blade.php' -print0 | xargs -0 -n1 php -l
+      - name: Installer integration and archive security
+        run: php tests/run.php
